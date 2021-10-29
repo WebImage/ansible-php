@@ -1,0 +1,21 @@
+---
+# The PHP version to be installed.  Must be a current version in YUM, as the version will be expanded from 7.2 to php72w
+php_version: '7.3'
+
+# Support YUM packages that should be installed prior to PHP
+php_required_packages: []
+
+# Additional PHP YUM packages to be installed.
+# Only include the keyword part of the package name, e.g. xml gets expanded to php[version]-[keyword] => php73w-xml
+php_packages: []
+
+# The repository to use (webtatic or remi)
+php_repo: remi
+
+php_ini_settings: []
+#  - section: Session
+#    option: session.save_handler
+#    value: memcached
+#  - section: Session
+#    key: session.save_path
+#    value: "127.0.0.1:11211"

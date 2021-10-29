@@ -1,0 +1,96 @@
+- name: Add webtatic YUM repository
+  yum:
+    name: https://mirror.webtatic.com/yum/el{{ ansible_distribution_major_version }}/webtatic-release.rpm
+    state: present
+  when:
+    - php_repo == 'webtatic'
+    - ansible_distribution_file_variety == 'RedHat'
+
+- name: Add REMI YUM repository
+  yum:
+    name: https://rpms.remirepo.net/enterprise/remi-release-{{ ansible_distribution_major_version}}.rpm
+    state: present
+  when:
+    - php_repo == 'remi'
+    - ansible_distribution_file_variety == 'RedHat'
+
+- name: Compose PHP package name
+  set_fact:
+    php_package_prefix: "php{% if php_repo == 'webtatic' and php_version | length > 0 %}w{% endif %}"
+#    php_enable_repo: "{% if php_repo == 'remi' %}remi-php{{ php_version | string | regex_replace('\\.') }},remi{% else %}webtatic{% endif %}"
+    php_enable_repo: "{% if php_repo == 'remi' %}remi-php{{ php_version | string | regex_replace('\\.') }}{% else %}webtatic{% endif %}"
+
+- name: Establish PHP core package
+  set_fact:
+    php_core_package: "{{ php_package_prefix }}"
+
+- name: Install required packages
+  yum: 
+    name: "{{ php_required_packages }}"
+    state: present
+#  with_items: "{{ php_required_packages }}"
+  notify:
+    - Restart Webserver
+  when: ansible_distribution_file_variety == 'RedHat'
+
+- name: Vars
+  debug:
+    var: php_enable_repo
+ 
+- name: Vars
+  debug:
+    var: php_core_package
+ 
+- name: Install PHP
+  yum:
+    name: "{{ php_core_package }}"
+    state: latest
+    enablerepo: "{{ php_enable_repo | default(omit) }}"
+  notify: Restart Webserver
+
+# Takes the list of packages, e.g. - xml and converts it to the appropriate PHP version, e.g. php72-xml
+- name: Build list of PHP package names
+  set_fact:
+    name: "{{ php_package_prefix }}-{{ item }}"
+    enablerepo: "{{ php_enable_repo | default(omit) }}"
+  register: php_install_packages
+  with_items: "{{ php_packages }}"
+  notify:
+    - Restart Webserver
+
+- name: Install additional PHP packages
+  yum:
+    name: "{{ php_install_packages.results | map(attribute='ansible_facts.name') | list }}"
+    state: latest
+    enablerepo: "{{ php_enable_repo | default(omit) }}"
+  notify:
+    - Restart Webserver
+
+- name: Update php.ini
+  block:
+    - name: Find php.ini
+      # https://stackoverflow.com/questions/48249269/bash-script-store-php-ini-location-in-a-variable
+      shell: "php -i | sed -n '/^Loaded Configuration File => /{s:^.*> ::;p;q}'"
+      changed_when: false
+      register: php_ini
+
+    - name: Register php.ini path
+      set_fact:
+        php_ini_path: "{{ php_ini.stdout }}"
+        php_ini_directory: "{{ php_ini.stdout | dirname }}"
+
+    - name: Check if php.ini exists
+      stat:
+        path: "{{ php_ini_path }}"
+      register: php_ini_exists
+      failed_when: php_ini_exists.stat.exists == false
+
+    - name: Update php.ini settings
+      ini_file:
+        path: "{{ php_ini_directory }}/{{ item.file | default('php.ini') }}"
+        section: "{{ item.section }}"
+        option: "{{ item.option }}"
+        value: "{{ item.value }}"
+      with_items: "{{ php_ini_settings }}"
+
+  when: php_ini_settings | length or (php_fpm_ini_settings is defined and php_fpm_ini_settings | length)
